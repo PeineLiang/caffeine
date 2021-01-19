@@ -19,8 +19,6 @@ import static com.github.benmanes.caffeine.cache.Async.ASYNC_EXPIRY;
 import static com.github.benmanes.caffeine.cache.Caffeine.ceilingPowerOfTwo;
 import static com.github.benmanes.caffeine.cache.Caffeine.requireArgument;
 import static com.github.benmanes.caffeine.cache.Caffeine.requireState;
-import static com.github.benmanes.caffeine.cache.LocalLoadingCache.newBulkMappingFunction;
-import static com.github.benmanes.caffeine.cache.LocalLoadingCache.newMappingFunction;
 import static com.github.benmanes.caffeine.cache.Node.PROBATION;
 import static com.github.benmanes.caffeine.cache.Node.PROTECTED;
 import static com.github.benmanes.caffeine.cache.Node.WINDOW;
@@ -70,6 +68,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.github.benmanes.caffeine.cache.Async.AsyncExpiry;
@@ -213,10 +212,10 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   static final VarHandle REFRESHES;
 
   final ConcurrentHashMap<Object, Node<K, V>> data;
-  @Nullable final CacheLoader<K, V> cacheLoader;
   final PerformCleanupTask drainBuffersTask;
   final Consumer<Node<K, V>> accessPolicy;
   final Buffer<Node<K, V>> readBuffer;
+  final CacheLoader<K, V> cacheLoader;
   final NodeFactory<K, V> nodeFactory;
   final ReentrantLock evictionLock;
   final CacheWriter<K, V> writer;
@@ -227,9 +226,10 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   @Nullable Set<K> keySet;
   @Nullable Collection<V> values;
   @Nullable Set<Entry<K, V>> entrySet;
-  @Nullable volatile ConcurrentMap<Object, CompletableFuture<?>> refreshes;
+  volatile @Nullable ConcurrentMap<Object, CompletableFuture<?>> refreshes;
 
   /** Creates an instance based on the builder's configuration. */
+  @SuppressWarnings("nullness")
   protected BoundedLocalCache(Caffeine<K, V> builder,
       @Nullable CacheLoader<K, V> cacheLoader, boolean isAsync) {
     this.isAsync = isAsync;
@@ -302,7 +302,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
-  @SuppressWarnings("NullAway")
+  @SuppressWarnings({"NullAway", "nullness"})
   public ConcurrentMap<Object, CompletableFuture<?>> refreshes() {
     var pending = refreshes;
     if (pending == null) {
@@ -311,6 +311,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
         pending = refreshes;
       }
     }
+
     return pending;
   }
 
@@ -352,7 +353,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   /* --------------- Removal Listener Support --------------- */
 
   @Override
-  @SuppressWarnings("NullAway")
+  @SuppressWarnings({"NullAway", "nullness"})
   public RemovalListener<K, V> removalListener() {
     return null;
   }
@@ -392,12 +393,12 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
     return false;
   }
 
-  @SuppressWarnings("NullAway")
+  @SuppressWarnings({"NullAway", "nullness"})
   protected ReferenceQueue<K> keyReferenceQueue() {
     return null;
   }
 
-  @SuppressWarnings("NullAway")
+  @SuppressWarnings({"NullAway", "nullness"})
   protected ReferenceQueue<V> valueReferenceQueue() {
     return null;
   }
@@ -462,7 +463,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
-  @SuppressWarnings("NullAway")
+  @SuppressWarnings({"NullAway", "nullness"})
   public Expiry<K, V> expiry() {
     return null;
   }
@@ -733,7 +734,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
       // Evict immediately if only one of the entries is present
       if (victim == null) {
-        @SuppressWarnings("NullAway")
+        @SuppressWarnings({"NullAway", "nullness"})
         Node<K, V> previous = candidate.getPreviousInAccessOrder();
         Node<K, V> evict = candidate;
         candidate = previous;
@@ -935,7 +936,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   boolean evictEntry(Node<K, V> node, RemovalCause cause, long now) {
     K key = node.getKey();
     @SuppressWarnings("unchecked")
-    V[] value = (V[]) new Object[1];
+    @Nullable V[] value = (V[]) new Object[1];
     boolean[] removed = new boolean[1];
     boolean[] resurrect = new boolean[1];
     RemovalCause[] actualCause = new RemovalCause[1];
@@ -979,7 +980,10 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
       }
       discardRefresh(keyReference);
       removed[0] = true;
-      return null;
+
+      @SuppressWarnings("nullness")
+      @NonNull Node<K, V> absent = null;
+      return absent;
     });
 
     // The entry is no longer eligible for eviction
@@ -1630,7 +1634,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   /** Updates the node's location in the policy's deque. */
-  static <K, V> void reorder(LinkedDeque<Node<K, V>> deque, Node<K, V> node) {
+  void reorder(LinkedDeque<Node<K, V>> deque, Node<K, V> node) {
     // An entry may be scheduled for reordering despite having been removed. This can occur when the
     // entry was concurrently read while a writer was removing it. If the entry is no longer linked
     // then it does not need to be processed.
@@ -1859,7 +1863,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   void removeNode(Node<K, V> node, long now) {
     K key = node.getKey();
     @SuppressWarnings("unchecked")
-    V[] value = (V[]) new Object[1];
+    @Nullable V[] value = (V[]) new Object[1];
     RemovalCause[] cause = new RemovalCause[1];
 
     data.computeIfPresent(node.getKeyReference(), (k, n) -> {
@@ -1883,7 +1887,10 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
         discardRefresh(node.getKeyReference());
         makeDead(n);
-        return null;
+
+        @SuppressWarnings("nullness")
+        @NonNull Node<K, V> absent = null;
+        return absent;
       }
     });
 
@@ -1908,6 +1915,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
+  @SuppressWarnings("contracts.conditional.postcondition.not.satisfied")
   public boolean containsKey(Object key) {
     Node<K, V> node = data.get(nodeFactory.newLookupKey(key));
     return (node != null) && (node.getValue() != null)
@@ -1979,15 +1987,16 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
   @Override
   public Map<K, V> getAllPresent(Iterable<? extends K> keys) {
-    Map<Object, Object> result = new LinkedHashMap<>();
+    Map<Object, @Nullable Object> result = new LinkedHashMap<>();
     for (Object key : keys) {
       result.put(key, null);
     }
 
     int uniqueKeys = result.size();
     long now = expirationTicker().read();
-    for (var iter = result.entrySet().iterator(); iter.hasNext();) {
-      Map.Entry<Object, Object> entry = iter.next();
+    for (Iterator<Entry<Object, @Nullable Object>> iter = result.entrySet().iterator();
+         iter.hasNext();) {
+      Map.Entry<Object, @Nullable Object> entry = iter.next();
       V value;
       Node<K, V> node = data.get(nodeFactory.newLookupKey(entry.getKey()));
       if ((node == null) || ((value = node.getValue()) == null) || hasExpired(node, now)) {
@@ -2013,16 +2022,19 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
+  @SuppressWarnings("contracts.postcondition.not.satisfied")
   public @Nullable V put(K key, V value) {
     return put(key, value, expiry(), /* notifyWriter */ true, /* onlyIfAbsent */ false);
   }
 
   @Override
+  @SuppressWarnings("contracts.postcondition.not.satisfied")
   public @Nullable V put(K key, V value, boolean notifyWriter) {
     return put(key, value, expiry(), notifyWriter, /* onlyIfAbsent */ false);
   }
 
   @Override
+  @SuppressWarnings("contracts.postcondition.not.satisfied")
   public @Nullable V putIfAbsent(K key, V value) {
     return put(key, value, expiry(), /* notifyWriter */ true, /* onlyIfAbsent */ true);
   }
@@ -2163,7 +2175,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
     @SuppressWarnings({"unchecked", "rawtypes"})
     Node<K, V>[] node = new Node[1];
     @SuppressWarnings("unchecked")
-    V[] oldValue = (V[]) new Object[1];
+    @Nullable V[] oldValue = (V[]) new Object[1];
     RemovalCause[] cause = new RemovalCause[1];
     Object lookupKey = nodeFactory.newLookupKey(key);
 
@@ -2182,7 +2194,10 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
       }
       discardRefresh(lookupKey);
       node[0] = n;
-      return null;
+
+      @SuppressWarnings("nullness")
+      @NonNull Node<K, V> absent = null;
+      return absent;
     });
 
     if (cause[0] != null) {
@@ -2204,9 +2219,9 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
     @SuppressWarnings({"unchecked", "rawtypes"})
     Node<K, V>[] removed = new Node[1];
     @SuppressWarnings("unchecked")
-    K[] oldKey = (K[]) new Object[1];
+    @Nullable K[] oldKey = (K[]) new Object[1];
     @SuppressWarnings("unchecked")
-    V[] oldValue = (V[]) new Object[1];
+    @Nullable V[] oldValue = (V[]) new Object[1];
     RemovalCause[] cause = new RemovalCause[1];
     Object lookupKey = nodeFactory.newLookupKey(key);
 
@@ -2223,11 +2238,19 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
         } else {
           return node;
         }
-        writer.delete(oldKey[0], oldValue[0], cause[0]);
+
+        @SuppressWarnings("nullness")
+        @NonNull K nonNullKey = oldKey[0];
+        @SuppressWarnings("nullness")
+        @NonNull V nonNullValue = oldValue[0];
+        writer.delete(nonNullKey, nonNullValue, cause[0]);
         discardRefresh(lookupKey);
         removed[0] = node;
         node.retire();
-        return null;
+
+        @SuppressWarnings("nullness")
+        @NonNull Node<K, V> absent = null;
+        return absent;
       }
     });
 
@@ -2249,9 +2272,9 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
     int[] oldWeight = new int[1];
     @SuppressWarnings("unchecked")
-    K[] nodeKey = (K[]) new Object[1];
+    @Nullable K[] nodeKey = (K[]) new Object[1];
     @SuppressWarnings("unchecked")
-    V[] oldValue = (V[]) new Object[1];
+    @Nullable V[] oldValue = (V[]) new Object[1];
     long[] now = new long[1];
     int weight = weigher.weigh(key, value);
     Node<K, V> node = data.computeIfPresent(nodeFactory.newLookupKey(key), (k, n) -> {
@@ -2267,7 +2290,9 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
         long varTime = expireAfterUpdate(n, key, value, expiry(), now[0]);
         if (value != oldValue[0]) {
-          writer.write(nodeKey[0], value);
+          @SuppressWarnings("nullness")
+          @NonNull K nonNullKey = nodeKey[0];
+          writer.write(nonNullKey, value);
         }
         n.setValue(value, valueReferenceQueue());
         n.setWeight(weight);
@@ -2306,9 +2331,9 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
     int weight = weigher.weigh(key, newValue);
     boolean[] replaced = new boolean[1];
     @SuppressWarnings("unchecked")
-    K[] nodeKey = (K[]) new Object[1];
+    @Nullable K[] nodeKey = (K[]) new Object[1];
     @SuppressWarnings("unchecked")
-    V[] prevValue = (V[]) new Object[1];
+    @Nullable V[] prevValue = (V[]) new Object[1];
     int[] oldWeight = new int[1];
     long[] now = new long[1];
     Node<K, V> node = data.computeIfPresent(nodeFactory.newLookupKey(key), (k, n) -> {
@@ -2373,7 +2398,8 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
-  public @Nullable V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction,
+  public @Nullable V computeIfAbsent(K key,
+      Function<? super K, ? extends @Nullable V> mappingFunction,
       boolean recordStats, boolean recordLoad) {
     requireNonNull(key);
     requireNonNull(mappingFunction);
@@ -2402,13 +2428,14 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
   /** Returns the current value from a computeIfAbsent invocation. */
   @Nullable V doComputeIfAbsent(K key, Object keyRef,
-      Function<? super K, ? extends V> mappingFunction, long[/* 1 */] now, boolean recordStats) {
+      Function<? super K, ? extends @Nullable V> mappingFunction,
+      long[/* 1 */] now, boolean recordStats) {
     @SuppressWarnings("unchecked")
-    V[] oldValue = (V[]) new Object[1];
+    @Nullable V[] oldValue = (V[]) new Object[1];
     @SuppressWarnings("unchecked")
-    V[] newValue = (V[]) new Object[1];
+    @Nullable V[] newValue = (V[]) new Object[1];
     @SuppressWarnings("unchecked")
-    K[] nodeKey = (K[]) new Object[1];
+    @Nullable K[] nodeKey = (K[]) new Object[1];
     @SuppressWarnings({"unchecked", "rawtypes"})
     Node<K, V>[] removed = new Node[1];
 
@@ -2418,13 +2445,17 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
       if (n == null) {
         newValue[0] = mappingFunction.apply(key);
         if (newValue[0] == null) {
-          return null;
+          @SuppressWarnings("nullness")
+          @NonNull Node<K, V> absent = null;
+          return absent;
         }
         now[0] = expirationTicker().read();
-        weight[1] = weigher.weigh(key, newValue[0]);
+        @SuppressWarnings("nullness")
+        @NonNull V nonNullValue = newValue[0];
+        weight[1] = weigher.weigh(key, nonNullValue);
         n = nodeFactory.newNode(key, keyReferenceQueue(),
-            newValue[0], valueReferenceQueue(), weight[1], now[0]);
-        setVariableTime(n, expireAfterCreate(key, newValue[0], expiry(), now[0]));
+            nonNullValue, valueReferenceQueue(), weight[1], now[0]);
+        setVariableTime(n, expireAfterCreate(key, nonNullValue, expiry(), now[0]));
         return n;
       }
 
@@ -2440,19 +2471,30 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
           return n;
         }
 
-        writer.delete(nodeKey[0], oldValue[0], cause[0]);
+        @SuppressWarnings("nullness")
+        @NonNull K nonNullOldKey = nodeKey[0];
+        @SuppressWarnings("nullness")
+        @NonNull V nonNullOldValue = oldValue[0];
+        writer.delete(nonNullOldKey, nonNullOldValue, cause[0]);
+
         newValue[0] = mappingFunction.apply(key);
         if (newValue[0] == null) {
           removed[0] = n;
           n.retire();
-          return null;
+
+          @SuppressWarnings("nullness")
+          @NonNull Node<K, V> absent = null;
+          return absent;
         }
-        weight[1] = weigher.weigh(key, newValue[0]);
-        n.setValue(newValue[0], valueReferenceQueue());
+
+        @SuppressWarnings("nullness")
+        @NonNull V nonNullValue = newValue[0];
+        weight[1] = weigher.weigh(key, nonNullValue);
+        n.setValue(nonNullValue, valueReferenceQueue());
         n.setWeight(weight[1]);
 
         now[0] = expirationTicker().read();
-        setVariableTime(n, expireAfterCreate(key, newValue[0], expiry(), now[0]));
+        setVariableTime(n, expireAfterCreate(key, nonNullValue, expiry(), now[0]));
         setAccessTime(n, now[0]);
         setWriteTime(n, now[0]);
         discardRefresh(k);
@@ -2492,8 +2534,9 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
   }
 
   @Override
+  @SuppressWarnings("override.return.invalid")
   public @Nullable V computeIfPresent(K key,
-      BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
+      BiFunction<? super K, ? super V, ? extends @Nullable V> remappingFunction) {
     requireNonNull(key);
     requireNonNull(remappingFunction);
 
@@ -2517,7 +2560,8 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
   @Override
   @SuppressWarnings("NullAway")
-  public @Nullable V compute(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction,
+  public @Nullable V compute(K key,
+      BiFunction<? super K, ? super V, ? extends @Nullable V> remappingFunction,
       @Nullable Expiry<K, V> expiry, boolean recordMiss,
       boolean recordLoad, boolean recordLoadFailure) {
     requireNonNull(key);
@@ -2533,7 +2577,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
 
   @Override
   public @Nullable V merge(K key, V value,
-      BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+      BiFunction<? super V, ? super V, ? extends @Nullable V> remappingFunction) {
     requireNonNull(key);
     requireNonNull(value);
     requireNonNull(remappingFunction);
@@ -2563,8 +2607,8 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
    */
   @SuppressWarnings("PMD.EmptyIfStmt")
   @Nullable V remap(K key, Object keyRef,
-      BiFunction<? super K, ? super V, ? extends V> remappingFunction,
-      Expiry<K, V> expiry, long[/* 1 */] now, boolean computeIfAbsent) {
+      BiFunction<? super K, ? super V, ? extends @Nullable V> remappingFunction,
+      @Nullable Expiry<K, V> expiry, long[/* 1 */] now, boolean computeIfAbsent) {
     @SuppressWarnings("unchecked")
     K[] nodeKey = (K[]) new Object[1];
     @SuppressWarnings("unchecked")
@@ -3797,7 +3841,7 @@ abstract class BoundedLocalCache<K extends Object, V extends Object>
     private static final long serialVersionUID = 1;
 
     final Function<K, V> mappingFunction;
-    @Nullable final Function<Set<? extends K>, Map<K, V>> bulkMappingFunction;
+    final @Nullable Function<Set<? extends K>, Map<K, V>> bulkMappingFunction;
 
     BoundedLocalLoadingCache(Caffeine<K, V> builder, CacheLoader<? super K, V> loader) {
       super(builder, loader);
